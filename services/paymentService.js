@@ -1,4 +1,4 @@
-const UPI_ID = '9024408325@ptaxis';
+const UPI_ID = '7737872585@ptaxis';
 
 const generateUPILink = (amount, name = 'Donor', note = 'VoiceForHelp Donation') => {
   const params = new URLSearchParams({

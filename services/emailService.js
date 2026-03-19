@@ -61,7 +61,7 @@ function emailWrapper(content) {
         <a href="${CLIENT_URL}/contact">Contact</a>
       </p>
       <p style="margin: 0;">&copy; ${new Date().getFullYear()} VoiceForHelp. All Rights Reserved.</p>
-      <p style="margin: 5px 0 0; color: #666;">Rajasthan, India | +91-9024408325</p>
+      <p style="margin: 5px 0 0; color: #666;">Rajasthan, India | +91-7737872585</p>
     </div>
   </div>
 </body>
@@ -248,7 +248,7 @@ async function sendPasswordResetSuccessEmail(email, name) {
     <div style="text-align: center; margin: 25px 0;">
       <a href="${CLIENT_URL}/login" class="btn">Login Now</a>
     </div>
-    <p style="color: #999; font-size: 13px;">If you didn't reset your password, please contact us immediately at info@voiceforhelp.org</p>
+    <p style="color: #999; font-size: 13px;">If you didn't reset your password, please contact us immediately at support@voiceforhelp.com</p>
   `);
 
   await transporter.sendMail({
