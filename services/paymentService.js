@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const axios = require('axios');
 
-const UPI_ID = '7737872585@ptaxis';
+const UPI_ID = '7340539497@kotak811';
 
 // ─── PhonePe Config ───
 const PHONEPE_MERCHANT_ID = process.env.PHONEPE_MERCHANT_ID;
@@ -21,7 +21,8 @@ const SERVER_URL = process.env.SERVER_URL || 'http://localhost:5000';
 const generateUPILink = (amount, name = 'Donor', note = 'VoiceForHelp Donation') => {
   const params = new URLSearchParams({
     pa: UPI_ID,
-    pn: 'VoiceForHelp',
+    pn: 'Vageesh Sharma',
+    // pn: 'VoiceForHelp',
     am: String(amount),
     cu: 'INR',
     tn: note,
@@ -33,7 +34,8 @@ const generateUPIQRData = (amount, transactionRef = '') => {
   return {
     upiId: UPI_ID,
     amount,
-    payeeName: 'VoiceForHelp',
+    payeeName: 'Vageesh Sharma',
+    // payeeName: 'VoiceForHelp',
     upiLink: generateUPILink(amount),
     transactionRef,
   };
