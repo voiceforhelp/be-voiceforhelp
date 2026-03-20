@@ -22,6 +22,7 @@ donationSchema.index({ donationGroupDate: 1 });
 donationSchema.index({ paymentStatus: 1 });
 donationSchema.index({ userId: 1 });
 donationSchema.index({ donationDate: -1 });
+donationSchema.index({ email: 1 });
 
 donationSchema.pre('save', function (next) {
   if (!this.donationGroupDate) {

@@ -3,7 +3,7 @@ const axios = require('axios');
 const BREVO_API_KEY = process.env.BREVO_API_KEY;
 const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
 
-const FROM_EMAIL = process.env.FROM_EMAIL || 'noreply@voiceforhelp.org';
+const FROM_EMAIL = process.env.FROM_EMAIL || 'noreply@voiceforhelp.com';
 const FROM_NAME = process.env.FROM_NAME || 'VoiceForHelp';
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:3000';
 

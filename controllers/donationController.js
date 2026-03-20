@@ -6,6 +6,21 @@ const { generateUPIQRData, initiatePhonePePayment, checkPhonePeStatus, isPhonePe
 const { getDonationGroupDate } = require('../utils/helpers');
 const { sendDonationConfirmationEmail, sendDonationStatusEmail } = require('../services/emailService');
 
+// Helper: Try to link donation to existing user by email
+async function linkDonationToUser(donation, email) {
+  if (!email) return;
+  try {
+    const user = await User.findOne({ email: email.toLowerCase() });
+    if (user) {
+      donation.userId = user._id;
+      await donation.save();
+      await User.findByIdAndUpdate(user._id, { $addToSet: { donations: donation._id } });
+    }
+  } catch (err) {
+    console.error('Error linking donation to user:', err.message);
+  }
+}
+
 // @route   POST /api/donations
 exports.createDonation = async (req, res, next) => {
   try {
@@ -24,7 +39,11 @@ exports.createDonation = async (req, res, next) => {
     });
 
     if (req.user) {
-      await User.findByIdAndUpdate(req.user._id, { $push: { donations: donation._id } });
+      // Logged in user - link directly
+      await User.findByIdAndUpdate(req.user._id, { $addToSet: { donations: donation._id } });
+    } else if (email) {
+      // Not logged in - try to link by email
+      await linkDonationToUser(donation, email);
     }
 
     // Send donation confirmation email (non-blocking)
@@ -47,7 +66,6 @@ exports.createDonation = async (req, res, next) => {
         });
       } catch (phonePeError) {
         console.error('PhonePe initiation failed, falling back to UPI:', phonePeError.message);
-        // Fall through to UPI QR
       }
     }
 
@@ -62,18 +80,24 @@ exports.createDonation = async (req, res, next) => {
 // @route   POST /api/donations/fast
 exports.createFastDonation = async (req, res, next) => {
   try {
-    const { phone, amount, category } = req.body;
+    const { phone, amount, category, email } = req.body;
 
     const donation = await Donation.create({
-      name: 'Anonymous',
+      name: email ? 'Donor' : 'Anonymous',
+      email: email || null,
       phone,
       amount,
       category: category || null,
       donationGroupDate: getDonationGroupDate(),
-      isAnonymous: true,
+      isAnonymous: !email,
       paymentStatus: 'pending',
       paymentMethod: isPhonePeConfigured() ? 'phonepe' : 'upi',
     });
+
+    // Try to link by email if provided
+    if (email) {
+      await linkDonationToUser(donation, email);
+    }
 
     // Try PhonePe first
     if (isPhonePeConfigured()) {
@@ -81,7 +105,7 @@ exports.createFastDonation = async (req, res, next) => {
         const phonePeResult = await initiatePhonePePayment(
           amount,
           donation._id.toString(),
-          'Anonymous',
+          donation.name,
           phone
         );
         return res.status(201).json({
@@ -112,7 +136,6 @@ exports.phonePeCallback = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Invalid callback data' });
     }
 
-    // Decode the response
     const decodedResponse = JSON.parse(Buffer.from(base64Response, 'base64').toString('utf-8'));
     const { merchantTransactionId, code, transactionId } = decodedResponse.data || {};
 
@@ -125,7 +148,6 @@ exports.phonePeCallback = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Donation not found' });
     }
 
-    // Already processed
     if (donation.paymentStatus !== 'pending') {
       return res.json({ success: true, message: 'Already processed' });
     }
@@ -135,12 +157,10 @@ exports.phonePeCallback = async (req, res, next) => {
     if (transactionId) donation.transactionId = transactionId;
     await donation.save();
 
-    // Update category raised amount on success
     if (isSuccess && donation.category) {
       await Category.findByIdAndUpdate(donation.category, { $inc: { raisedAmount: donation.amount } });
     }
 
-    // Send status email (non-blocking)
     sendDonationStatusEmail(donation, donation.paymentStatus).catch((err) =>
       console.error('Status email error:', err)
     );
@@ -162,8 +182,8 @@ exports.checkPaymentStatus = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Donation not found' });
     }
 
-    // If still pending, check with PhonePe
-    if (donation.paymentStatus === 'pending' && isPhonePeConfigured()) {
+    // If still pending and PhonePe, check with PhonePe API
+    if (donation.paymentStatus === 'pending' && donation.paymentMethod === 'phonepe' && isPhonePeConfigured()) {
       try {
         const statusResponse = await checkPhonePeStatus(txnId);
         const code = statusResponse?.code;
@@ -183,7 +203,6 @@ exports.checkPaymentStatus = async (req, res, next) => {
           await donation.save();
           sendDonationStatusEmail(donation, 'failed').catch((err) => console.error('Status email error:', err));
         }
-        // If PAYMENT_PENDING, leave as pending
       } catch (statusError) {
         console.error('PhonePe status check error:', statusError.message);
       }
@@ -194,12 +213,14 @@ exports.checkPaymentStatus = async (req, res, next) => {
       donation: {
         _id: donation._id,
         name: donation.name,
+        email: donation.email,
         amount: donation.amount,
         paymentStatus: donation.paymentStatus,
         transactionId: donation.transactionId,
         category: donation.category,
         donationDate: donation.donationDate,
         paymentMethod: donation.paymentMethod,
+        userId: donation.userId,
       },
     });
   } catch (error) {
@@ -254,7 +275,13 @@ exports.getDonationsByGroupDate = async (req, res, next) => {
 // @route   GET /api/donations/my
 exports.getMyDonations = async (req, res, next) => {
   try {
-    const donations = await Donation.find({ userId: req.user._id })
+    // Find by userId OR by email (to include donations made before registration)
+    const donations = await Donation.find({
+      $or: [
+        { userId: req.user._id },
+        { email: req.user.email },
+      ],
+    })
       .populate('category', 'name')
       .sort('-donationDate');
 
@@ -321,7 +348,6 @@ exports.updateDonationStatus = async (req, res, next) => {
       await Category.findByIdAndUpdate(donation.category, { $inc: { raisedAmount: donation.amount } });
     }
 
-    // Send donation status email (non-blocking)
     sendDonationStatusEmail(donation, paymentStatus).catch((err) => console.error('Status email error:', err));
 
     res.json({ success: true, donation });
