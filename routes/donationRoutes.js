@@ -12,10 +12,18 @@ const {
   getDonationStats,
   getRecentDonors,
   updateDonationStatus,
+  phonePeCallback,
+  checkPaymentStatus,
 } = require('../controllers/donationController');
 
 // Public
 router.get('/recent', getRecentDonors);
+
+// PhonePe callback (server-to-server, no auth)
+router.post('/phonepe/callback', phonePeCallback);
+
+// PhonePe payment status check (public - used by redirect page)
+router.get('/phonepe/status/:txnId', checkPaymentStatus);
 
 router.post(
   '/fast',

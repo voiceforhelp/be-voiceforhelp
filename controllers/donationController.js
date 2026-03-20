@@ -2,7 +2,7 @@ const Donation = require('../models/Donation');
 const Category = require('../models/Category');
 const User = require('../models/User');
 const ApiFeatures = require('../utils/apiFeatures');
-const { generateUPIQRData } = require('../services/paymentService');
+const { generateUPIQRData, initiatePhonePePayment, checkPhonePeStatus, isPhonePeConfigured } = require('../services/paymentService');
 const { getDonationGroupDate } = require('../utils/helpers');
 const { sendDonationConfirmationEmail, sendDonationStatusEmail } = require('../services/emailService');
 
@@ -17,21 +17,43 @@ exports.createDonation = async (req, res, next) => {
       email,
       phone,
       amount,
-      category,
+      category: category || null,
       donationGroupDate: getDonationGroupDate(),
       paymentStatus: 'pending',
+      paymentMethod: isPhonePeConfigured() ? 'phonepe' : 'upi',
     });
 
     if (req.user) {
       await User.findByIdAndUpdate(req.user._id, { $push: { donations: donation._id } });
     }
 
-    const qrData = generateUPIQRData(amount, donation._id.toString());
-
     // Send donation confirmation email (non-blocking)
     sendDonationConfirmationEmail(donation).catch((err) => console.error('Donation email error:', err));
 
-    res.status(201).json({ success: true, donation, payment: qrData });
+    // Try PhonePe first, fallback to UPI QR
+    if (isPhonePeConfigured()) {
+      try {
+        const phonePeResult = await initiatePhonePePayment(
+          amount,
+          donation._id.toString(),
+          name,
+          phone
+        );
+        return res.status(201).json({
+          success: true,
+          donation,
+          paymentMethod: 'phonepe',
+          paymentUrl: phonePeResult.paymentUrl,
+        });
+      } catch (phonePeError) {
+        console.error('PhonePe initiation failed, falling back to UPI:', phonePeError.message);
+        // Fall through to UPI QR
+      }
+    }
+
+    // Fallback: UPI QR
+    const qrData = generateUPIQRData(amount, donation._id.toString());
+    res.status(201).json({ success: true, donation, paymentMethod: 'upi', payment: qrData });
   } catch (error) {
     next(error);
   }
@@ -50,11 +72,136 @@ exports.createFastDonation = async (req, res, next) => {
       donationGroupDate: getDonationGroupDate(),
       isAnonymous: true,
       paymentStatus: 'pending',
+      paymentMethod: isPhonePeConfigured() ? 'phonepe' : 'upi',
     });
 
-    const qrData = generateUPIQRData(amount, donation._id.toString());
+    // Try PhonePe first
+    if (isPhonePeConfigured()) {
+      try {
+        const phonePeResult = await initiatePhonePePayment(
+          amount,
+          donation._id.toString(),
+          'Anonymous',
+          phone
+        );
+        return res.status(201).json({
+          success: true,
+          donation,
+          paymentMethod: 'phonepe',
+          paymentUrl: phonePeResult.paymentUrl,
+        });
+      } catch (phonePeError) {
+        console.error('PhonePe initiation failed, falling back to UPI:', phonePeError.message);
+      }
+    }
 
-    res.status(201).json({ success: true, donation, payment: qrData });
+    // Fallback: UPI QR
+    const qrData = generateUPIQRData(amount, donation._id.toString());
+    res.status(201).json({ success: true, donation, paymentMethod: 'upi', payment: qrData });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @route   POST /api/donations/phonepe/callback (PhonePe server-to-server)
+exports.phonePeCallback = async (req, res, next) => {
+  try {
+    const { response: base64Response } = req.body;
+
+    if (!base64Response) {
+      return res.status(400).json({ success: false, message: 'Invalid callback data' });
+    }
+
+    // Decode the response
+    const decodedResponse = JSON.parse(Buffer.from(base64Response, 'base64').toString('utf-8'));
+    const { merchantTransactionId, code, transactionId } = decodedResponse.data || {};
+
+    if (!merchantTransactionId) {
+      return res.status(400).json({ success: false, message: 'Missing transaction ID' });
+    }
+
+    const donation = await Donation.findById(merchantTransactionId);
+    if (!donation) {
+      return res.status(404).json({ success: false, message: 'Donation not found' });
+    }
+
+    // Already processed
+    if (donation.paymentStatus !== 'pending') {
+      return res.json({ success: true, message: 'Already processed' });
+    }
+
+    const isSuccess = code === 'PAYMENT_SUCCESS';
+    donation.paymentStatus = isSuccess ? 'completed' : 'failed';
+    if (transactionId) donation.transactionId = transactionId;
+    await donation.save();
+
+    // Update category raised amount on success
+    if (isSuccess && donation.category) {
+      await Category.findByIdAndUpdate(donation.category, { $inc: { raisedAmount: donation.amount } });
+    }
+
+    // Send status email (non-blocking)
+    sendDonationStatusEmail(donation, donation.paymentStatus).catch((err) =>
+      console.error('Status email error:', err)
+    );
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('PhonePe callback error:', error);
+    res.status(500).json({ success: false, message: 'Callback processing failed' });
+  }
+};
+
+// @route   GET /api/donations/phonepe/status/:txnId
+exports.checkPaymentStatus = async (req, res, next) => {
+  try {
+    const { txnId } = req.params;
+
+    const donation = await Donation.findById(txnId).populate('category', 'name');
+    if (!donation) {
+      return res.status(404).json({ success: false, message: 'Donation not found' });
+    }
+
+    // If still pending, check with PhonePe
+    if (donation.paymentStatus === 'pending' && isPhonePeConfigured()) {
+      try {
+        const statusResponse = await checkPhonePeStatus(txnId);
+        const code = statusResponse?.code;
+        const phonePeTxnId = statusResponse?.data?.transactionId;
+
+        if (code === 'PAYMENT_SUCCESS') {
+          donation.paymentStatus = 'completed';
+          if (phonePeTxnId) donation.transactionId = phonePeTxnId;
+          await donation.save();
+
+          if (donation.category) {
+            await Category.findByIdAndUpdate(donation.category, { $inc: { raisedAmount: donation.amount } });
+          }
+          sendDonationStatusEmail(donation, 'completed').catch((err) => console.error('Status email error:', err));
+        } else if (code === 'PAYMENT_ERROR' || code === 'PAYMENT_DECLINED') {
+          donation.paymentStatus = 'failed';
+          await donation.save();
+          sendDonationStatusEmail(donation, 'failed').catch((err) => console.error('Status email error:', err));
+        }
+        // If PAYMENT_PENDING, leave as pending
+      } catch (statusError) {
+        console.error('PhonePe status check error:', statusError.message);
+      }
+    }
+
+    res.json({
+      success: true,
+      donation: {
+        _id: donation._id,
+        name: donation.name,
+        amount: donation.amount,
+        paymentStatus: donation.paymentStatus,
+        transactionId: donation.transactionId,
+        category: donation.category,
+        donationDate: donation.donationDate,
+        paymentMethod: donation.paymentMethod,
+      },
+    });
   } catch (error) {
     next(error);
   }
