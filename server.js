@@ -43,6 +43,7 @@ app.use('/api/volunteers', require('./routes/volunteerRoutes'));
 app.use('/api/analytics', require('./routes/analyticsRoutes'));
 app.use('/api/upload', require('./routes/uploadRoutes'));
 app.use('/api/settings', require('./routes/settingsRoutes'));
+app.use('/api/users', require('./routes/userRoutes'));
 
 // Health check
 app.get('/api/health', (req, res) => {
