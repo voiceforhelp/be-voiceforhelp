@@ -1,18 +1,29 @@
-const nodemailer = require('nodemailer');
+const axios = require('axios');
 
-const transporter = nodemailer.createTransport({
-  host: process.env.BREVO_SMTP_HOST || 'smtp-relay.brevo.com',
-  port: parseInt(process.env.BREVO_SMTP_PORT || '587'),
-  secure: false,
-  auth: {
-    user: process.env.BREVO_SMTP_USER,
-    pass: process.env.BREVO_SMTP_KEY,
-  },
-});
+const BREVO_API_KEY = process.env.BREVO_API_KEY;
+const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
 
 const FROM_EMAIL = process.env.FROM_EMAIL || 'noreply@voiceforhelp.org';
 const FROM_NAME = process.env.FROM_NAME || 'VoiceForHelp';
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:3000';
+
+async function sendEmail({ to, subject, html }) {
+  if (!BREVO_API_KEY) {
+    throw new Error('BREVO_API_KEY is not set in environment variables');
+  }
+
+  await axios.post(BREVO_API_URL, {
+    sender: { name: FROM_NAME, email: FROM_EMAIL },
+    to: [{ email: to }],
+    subject,
+    htmlContent: html,
+  }, {
+    headers: {
+      'api-key': BREVO_API_KEY,
+      'Content-Type': 'application/json',
+    },
+  });
+}
 
 // ─── Base email wrapper ───
 function emailWrapper(content) {
@@ -92,12 +103,7 @@ async function sendOTPEmail(email, otp, purpose) {
     <p style="color: #999; font-size: 13px;">If you didn't request this, please ignore this email. Do not share this OTP with anyone.</p>
   `);
 
-  await transporter.sendMail({
-    from: `"${FROM_NAME}" <${FROM_EMAIL}>`,
-    to: email,
-    subject: subjectText[purpose],
-    html,
-  });
+  await sendEmail({ to: email, subject: subjectText[purpose], html });
 }
 
 // ─── Welcome email after registration ───
@@ -121,12 +127,7 @@ async function sendWelcomeEmail(user) {
     <p>Every rupee is accounted for. Every impact is recorded.</p>
   `);
 
-  await transporter.sendMail({
-    from: `"${FROM_NAME}" <${FROM_EMAIL}>`,
-    to: user.email,
-    subject: `Welcome to VoiceForHelp, ${user.name}!`,
-    html,
-  });
+  await sendEmail({ to: user.email, subject: `Welcome to VoiceForHelp, ${user.name}!`, html });
 }
 
 // ─── Donation confirmation email ───
@@ -157,12 +158,7 @@ async function sendDonationConfirmationEmail(donation) {
     <p style="color: #999; font-size: 13px;">Payment verification may take a few minutes. You'll receive a confirmation once verified.</p>
   `);
 
-  await transporter.sendMail({
-    from: `"${FROM_NAME}" <${FROM_EMAIL}>`,
-    to: donation.email,
-    subject: `Donation Received - ₹${donation.amount.toLocaleString('en-IN')} | VoiceForHelp`,
-    html,
-  });
+  await sendEmail({ to: donation.email, subject: `Donation Received - ₹${donation.amount.toLocaleString('en-IN')} | VoiceForHelp`, html });
 }
 
 // ─── Donation status update email ───
@@ -196,12 +192,7 @@ async function sendDonationStatusEmail(donation, status) {
     `}
   `);
 
-  await transporter.sendMail({
-    from: `"${FROM_NAME}" <${FROM_EMAIL}>`,
-    to: donation.email,
-    subject: `Donation ${statusText} - ₹${donation.amount.toLocaleString('en-IN')} | VoiceForHelp`,
-    html,
-  });
+  await sendEmail({ to: donation.email, subject: `Donation ${statusText} - ₹${donation.amount.toLocaleString('en-IN')} | VoiceForHelp`, html });
 }
 
 // ─── Video uploaded - notify donors of that group date ───
@@ -231,12 +222,7 @@ async function sendVideoNotificationEmail(donorEmail, donorName, video) {
     <p>This is our promise of transparency. Every rupee you donate is accounted for.</p>
   `);
 
-  await transporter.sendMail({
-    from: `"${FROM_NAME}" <${FROM_EMAIL}>`,
-    to: donorEmail,
-    subject: `🎬 Your Impact Video is Ready! | VoiceForHelp`,
-    html,
-  });
+  await sendEmail({ to: donorEmail, subject: `🎬 Your Impact Video is Ready! | VoiceForHelp`, html });
 }
 
 // ─── Password reset success email ───
@@ -251,12 +237,7 @@ async function sendPasswordResetSuccessEmail(email, name) {
     <p style="color: #999; font-size: 13px;">If you didn't reset your password, please contact us immediately at support@voiceforhelp.com</p>
   `);
 
-  await transporter.sendMail({
-    from: `"${FROM_NAME}" <${FROM_EMAIL}>`,
-    to: email,
-    subject: 'Password Reset Successful - VoiceForHelp',
-    html,
-  });
+  await sendEmail({ to: email, subject: 'Password Reset Successful - VoiceForHelp', html });
 }
 
 module.exports = {

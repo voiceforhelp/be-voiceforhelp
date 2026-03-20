@@ -24,6 +24,11 @@ const otpSchema = new mongoose.Schema({
     type: Number,
     default: 0,
   },
+  tempUserData: {
+    name: String,
+    phone: String,
+    password: String, // stored hashed
+  },
 }, { timestamps: true });
 
 otpSchema.index({ email: 1, purpose: 1 });

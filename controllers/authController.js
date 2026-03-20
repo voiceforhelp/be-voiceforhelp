@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
 const User = require('../models/User');
 const OTP = require('../models/OTP');
 const generateToken = require('../utils/generateToken');
@@ -7,34 +8,35 @@ const { sendOTPEmail, sendWelcomeEmail, sendPasswordResetSuccessEmail } = requir
 // Generate 6-digit OTP
 const generateOTP = () => crypto.randomInt(100000, 999999).toString();
 
-// ─── STEP 1: Register - send OTP to email ───
+// ─── STEP 1: Register - send OTP to email (user is NOT created yet) ───
 // @route   POST /api/auth/register
 exports.register = async (req, res, next) => {
   try {
     const { name, email, phone, password } = req.body;
 
     const existingUser = await User.findOne({ email });
-    if (existingUser && existingUser.isVerified) {
+    if (existingUser) {
       return res.status(400).json({ success: false, message: 'Email already registered' });
     }
 
-    // Delete any existing unverified user with same email so they can re-register
-    if (existingUser && !existingUser.isVerified) {
-      await User.findByIdAndDelete(existingUser._id);
-    }
+    // Hash password before storing in OTP record
+    const salt = await bcrypt.genSalt(12);
+    const hashedPassword = await bcrypt.hash(password, salt);
 
-    // Create user (unverified)
-    const user = await User.create({ name, email, phone, password, isVerified: false });
-
-    // Generate and save OTP
+    // Generate and save OTP with temp user data
     const otp = generateOTP();
     await OTP.deleteMany({ email, purpose: 'register' });
-    await OTP.create({ email, otp, purpose: 'register' });
+    await OTP.create({
+      email,
+      otp,
+      purpose: 'register',
+      tempUserData: { name, phone, password: hashedPassword },
+    });
 
     // Send OTP email
     await sendOTPEmail(email, otp, 'register');
 
-    res.status(201).json({
+    res.status(200).json({
       success: true,
       message: 'OTP sent to your email. Please verify to complete registration.',
       email,
@@ -45,14 +47,14 @@ exports.register = async (req, res, next) => {
   }
 };
 
-// ─── STEP 2: Verify registration OTP ───
+// ─── STEP 2: Verify registration OTP - NOW create the user ───
 // @route   POST /api/auth/verify-register
 exports.verifyRegister = async (req, res, next) => {
   try {
     const { email, otp } = req.body;
 
     const otpRecord = await OTP.findOne({ email, purpose: 'register' });
-    if (!otpRecord) {
+    if (!otpRecord || !otpRecord.tempUserData) {
       return res.status(400).json({ success: false, message: 'OTP expired or not found. Please register again.' });
     }
 
@@ -67,16 +69,11 @@ exports.verifyRegister = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Invalid OTP. Please try again.' });
     }
 
-    // Mark user as verified
-    const user = await User.findOneAndUpdate(
-      { email },
-      { isVerified: true },
-      { new: true }
-    );
-
-    if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found. Please register again.' });
-    }
+    // OTP verified — now create the user in DB
+    const { name, phone, password } = otpRecord.tempUserData;
+    const user = new User({ name, email, phone, password, isVerified: true });
+    user.$skipPasswordHash = true; // password already hashed
+    await user.save();
 
     // Cleanup OTP
     await OTP.deleteMany({ email, purpose: 'register' });
@@ -106,21 +103,6 @@ exports.login = async (req, res, next) => {
     const user = await User.findOne({ email }).select('+password');
     if (!user) {
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
-    }
-
-    if (!user.isVerified) {
-      // Resend OTP for unverified users
-      const otp = generateOTP();
-      await OTP.deleteMany({ email, purpose: 'register' });
-      await OTP.create({ email, otp, purpose: 'register' });
-      await sendOTPEmail(email, otp, 'register');
-
-      return res.status(403).json({
-        success: false,
-        message: 'Email not verified. A new OTP has been sent to your email.',
-        requiresOTP: true,
-        email,
-      });
     }
 
     const isMatch = await user.matchPassword(password);
@@ -253,13 +235,25 @@ exports.resendOTP = async (req, res, next) => {
     }
 
     if (purpose === 'register') {
-      const user = await User.findOne({ email });
-      if (!user) {
+      // Check if already registered
+      const existingUser = await User.findOne({ email });
+      if (existingUser) {
+        return res.status(400).json({ success: false, message: 'Email already registered. Please login.' });
+      }
+      // Check if there's a pending registration OTP with temp data
+      const pendingOTP = await OTP.findOne({ email, purpose: 'register' });
+      if (!pendingOTP || !pendingOTP.tempUserData) {
         return res.status(404).json({ success: false, message: 'Please register first.' });
       }
-      if (user.isVerified) {
-        return res.status(400).json({ success: false, message: 'Email already verified. Please login.' });
-      }
+      // Generate new OTP but keep the temp user data
+      const otp = generateOTP();
+      pendingOTP.otp = otp;
+      pendingOTP.attempts = 0;
+      pendingOTP.expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+      await pendingOTP.save();
+
+      await sendOTPEmail(email, otp, purpose);
+      return res.json({ success: true, message: 'OTP sent successfully.' });
     }
 
     const otp = generateOTP();
