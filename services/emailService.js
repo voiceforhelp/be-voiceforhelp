@@ -225,6 +225,53 @@ async function sendVideoNotificationEmail(donorEmail, donorName, video) {
   await sendEmail({ to: donorEmail, subject: `🎬 Your Impact Video is Ready! | VoiceForHelp`, html });
 }
 
+// ─── Donor linked to video - personalized email ───
+async function sendDonorLinkedVideoEmail(donation, video) {
+  if (!donation.email) return;
+
+  const categoryName = donation.category?.name || 'our cause';
+  const amountStr = `₹${donation.amount.toLocaleString('en-IN')}`;
+
+  const html = emailWrapper(`
+    <h2>Your Contribution Made an Impact! ❤️</h2>
+    <p>Dear <strong>${donation.name}</strong>,</p>
+    <p>Thank you for your generous donation of <strong>${amountStr}</strong> towards <strong>${categoryName}</strong>.</p>
+    <p>Your kindness has helped us create a real, measurable impact. We've documented this in a video — watch it to see the difference you've made!</p>
+    <div class="info-card">
+      <table width="100%" cellspacing="0" cellpadding="0">
+        <tr><td class="info-label">Category</td><td class="info-value" style="text-align:right;">${categoryName}</td></tr>
+        <tr><td colspan="2"><hr style="border:none;border-top:1px solid #eee;margin:8px 0;"></td></tr>
+        <tr><td class="info-label">Your Donation</td><td class="info-value" style="text-align:right;">${amountStr}</td></tr>
+        <tr><td colspan="2"><hr style="border:none;border-top:1px solid #eee;margin:8px 0;"></td></tr>
+        <tr><td class="info-label">Video</td><td class="info-value" style="text-align:right;">${video.title}</td></tr>
+      </table>
+    </div>
+    ${video.thumbnailUrl ? `<div style="text-align:center; margin: 15px 0;"><img src="${video.thumbnailUrl}" alt="Video Thumbnail" style="max-width:100%; border-radius:10px;"></div>` : ''}
+    <div style="text-align: center; margin: 25px 0;">
+      <a href="${CLIENT_URL}/videos/${video._id}" class="btn">▶ Watch the Impact Video</a>
+    </div>
+    ${video.socialLinks && (
+      (video.socialLinks.instagram && video.socialLinks.instagram.length > 0) ||
+      (video.socialLinks.youtube && video.socialLinks.youtube.length > 0) ||
+      (video.socialLinks.facebook && video.socialLinks.facebook.length > 0)
+    ) ? `
+    <div style="text-align: center; margin: 15px 0; font-size: 13px; color: #666;">
+      Also watch on:
+      ${video.socialLinks.youtube && video.socialLinks.youtube.length > 0 ? `<a href="${video.socialLinks.youtube[0].url}" style="color: #FF0000; margin: 0 5px;">YouTube</a>` : ''}
+      ${video.socialLinks.instagram && video.socialLinks.instagram.length > 0 ? `<a href="${video.socialLinks.instagram[0].url}" style="color: #E1306C; margin: 0 5px;">Instagram</a>` : ''}
+      ${video.socialLinks.facebook && video.socialLinks.facebook.length > 0 ? `<a href="${video.socialLinks.facebook[0].url}" style="color: #1877F2; margin: 0 5px;">Facebook</a>` : ''}
+    </div>` : ''}
+    <p>This is our promise of transparency — every rupee you donate is accounted for, every impact is recorded.</p>
+    <p>With heartfelt gratitude,<br><strong>Team Voice For Help Trust</strong></p>
+  `);
+
+  await sendEmail({
+    to: donation.email,
+    subject: `Your Contribution Made an Impact ❤️ | VoiceForHelp`,
+    html,
+  });
+}
+
 // ─── Password reset success email ───
 async function sendPasswordResetSuccessEmail(email, name) {
   const html = emailWrapper(`
@@ -246,5 +293,6 @@ module.exports = {
   sendDonationConfirmationEmail,
   sendDonationStatusEmail,
   sendVideoNotificationEmail,
+  sendDonorLinkedVideoEmail,
   sendPasswordResetSuccessEmail,
 };

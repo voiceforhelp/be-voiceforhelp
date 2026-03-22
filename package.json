@@ -1,7 +1,7 @@
 {
   "name": "voiceforhelp-backend",
   "version": "1.0.0",
-  "description": "VoiceForHelp - Transparent Donation Platform API",
+  "description": "VoiceForHelp - Transparency Donation Platform API",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -16,6 +16,7 @@
   "author": "VoiceForHelp",
   "license": "ISC",
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "axios": "^1.6.2",
     "bcryptjs": "^2.4.3",
     "cloudinary": "^1.41.0",

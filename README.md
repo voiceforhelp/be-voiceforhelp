@@ -1,6 +1,6 @@
 # VoiceForHelp - Backend API
 
-Transparent donation platform REST API built with Node.js, Express, and MongoDB.
+Transparency donation platform REST API built with Node.js, Express and MongoDB.
 
 ## Tech Stack
 

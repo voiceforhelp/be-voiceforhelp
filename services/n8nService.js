@@ -11,11 +11,14 @@ const triggerN8nWorkflow = async (videoData) => {
     const payload = {
       videoId: videoData._id,
       videoUrl: videoData.videoUrl,
-      thumbnailUrl: videoData.thumbnailUrl,
+      thumbnailUrl: videoData.thumbnailUrl || '',
       title: videoData.title,
-      description: videoData.description,
-      category: videoData.category,
+      description: videoData.description || '',
+      category: videoData.category?.name || videoData.category || '',
       donorGroupDate: videoData.donorGroupDate,
+      tags: videoData.tags || [],
+      linkedDonorCount: videoData.linkedDonors ? videoData.linkedDonors.length : 0,
+      existingSocialLinks: videoData.socialLinks || {},
       timestamp: new Date().toISOString(),
     };
 

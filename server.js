@@ -44,6 +44,8 @@ app.use('/api/analytics', require('./routes/analyticsRoutes'));
 app.use('/api/upload', require('./routes/uploadRoutes'));
 app.use('/api/settings', require('./routes/settingsRoutes'));
 app.use('/api/users', require('./routes/userRoutes'));
+app.use('/api/ai', require('./routes/aiRoutes'));
+app.use('/api/blogs', require('./routes/blogRoutes'));
 
 // Health check
 app.get('/api/health', (req, res) => {

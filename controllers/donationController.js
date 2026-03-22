@@ -330,6 +330,40 @@ exports.getRecentDonors = async (req, res, next) => {
   }
 };
 
+// @route   GET /api/donations/donors-list (admin) - Latest 1 week completed donors for multi-select
+exports.getDonorsList = async (req, res, next) => {
+  try {
+    const days = parseInt(req.query.days) || 7;
+    const search = req.query.search || '';
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - days);
+
+    const query = {
+      paymentStatus: 'completed',
+      donationDate: { $gte: cutoffDate },
+      isAnonymous: { $ne: true },
+    };
+
+    if (search) {
+      query.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+        { phone: { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    const donors = await Donation.find(query)
+      .populate('category', 'name')
+      .select('name email phone amount category donationDate donationGroupDate')
+      .sort('-donationDate')
+      .limit(100);
+
+    res.json({ success: true, donors });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // @route   PUT /api/donations/:id/status (admin)
 exports.updateDonationStatus = async (req, res, next) => {
   try {

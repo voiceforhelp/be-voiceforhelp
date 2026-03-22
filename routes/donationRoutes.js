@@ -11,6 +11,7 @@ const {
   getMyDonations,
   getDonationStats,
   getRecentDonors,
+  getDonorsList,
   updateDonationStatus,
   phonePeCallback,
   checkPaymentStatus,
@@ -50,6 +51,7 @@ router.post(
 router.get('/my', protect, getMyDonations);
 
 // Protected - Admin
+router.get('/donors-list', protect, authorize('admin'), getDonorsList);
 router.get('/', protect, authorize('admin'), getDonations);
 router.get('/stats', protect, authorize('admin'), getDonationStats);
 router.get('/group/:date', protect, authorize('admin'), getDonationsByGroupDate);
