@@ -8,13 +8,16 @@ const cron = require('node-cron');
 const dotenv = require('dotenv');
 const connectDB = require('./config/db');
 const { errorHandler } = require('./middleware/errorHandler');
+const { runAutoSeed } = require('./utils/autoSeed');
 
 dotenv.config();
 
 const app = express();
 
-// Connect to MongoDB
-connectDB();
+// Connect to MongoDB, then run auto-seed once
+connectDB().then(() => {
+  runAutoSeed().catch((err) => console.error('[SEED] Fatal:', err.message));
+});
 
 // Security middleware
 app.use(helmet());
