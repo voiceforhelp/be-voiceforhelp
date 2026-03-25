@@ -129,7 +129,12 @@ exports.getVideos = async (req, res, next) => {
 // @route   GET /api/videos/:id
 exports.getVideoById = async (req, res, next) => {
   try {
-    const video = await VideoImpact.findById(req.params.id)
+    // Atomic increment + fetch in one query
+    const video = await VideoImpact.findByIdAndUpdate(
+      req.params.id,
+      { $inc: { views: 1 } },
+      { new: true }
+    )
       .populate('category', 'name')
       .populate({
         path: 'linkedDonors',
@@ -140,8 +145,6 @@ exports.getVideoById = async (req, res, next) => {
     if (!video) {
       return res.status(404).json({ success: false, message: 'Video not found' });
     }
-    video.views += 1;
-    await video.save();
     res.json({ success: true, video });
   } catch (error) {
     next(error);
@@ -185,6 +188,86 @@ exports.getMyVideos = async (req, res, next) => {
       .sort('-createdAt');
 
     res.json({ success: true, count: videos.length, videos });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @route   GET /api/videos/:id/related
+exports.getRelatedVideos = async (req, res, next) => {
+  try {
+    const video = await VideoImpact.findById(req.params.id).select('category tags').lean();
+    if (!video) {
+      return res.status(404).json({ success: false, message: 'Video not found' });
+    }
+
+    const limit = parseInt(req.query.limit, 10) || 20;
+
+    // Single aggregation: prioritize same category, then recent
+    const pipeline = [
+      { $match: { _id: { $ne: video._id }, status: 'published' } },
+      {
+        $addFields: {
+          sortPriority: {
+            $cond: [
+              video.category ? { $eq: ['$category', video.category] } : false,
+              0, // same category = highest priority
+              1,
+            ],
+          },
+        },
+      },
+      { $sort: { sortPriority: 1, createdAt: -1 } },
+      { $limit: limit },
+      { $project: { sortPriority: 0 } },
+      {
+        $lookup: {
+          from: 'categories',
+          localField: 'category',
+          foreignField: '_id',
+          as: 'category',
+          pipeline: [{ $project: { name: 1 } }],
+        },
+      },
+      { $unwind: { path: '$category', preserveNullAndEmptyArrays: true } },
+    ];
+
+    const videos = await VideoImpact.aggregate(pipeline);
+
+    res.json({ success: true, count: videos.length, videos });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @route   GET /api/videos/feed/reels
+exports.getReelsFeed = async (req, res, next) => {
+  try {
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 10;
+    const skip = (page - 1) * limit;
+    const categoryId = req.query.category;
+    const excludeId = req.query.exclude;
+
+    const filter = { status: 'published' };
+    if (categoryId) filter.category = categoryId;
+    if (excludeId) filter._id = { $ne: excludeId };
+
+    const total = await VideoImpact.countDocuments(filter);
+    const videos = await VideoImpact.find(filter)
+      .populate('category', 'name')
+      .sort('-createdAt')
+      .skip(skip)
+      .limit(limit);
+
+    res.json({
+      success: true,
+      count: videos.length,
+      total,
+      page,
+      pages: Math.ceil(total / limit),
+      videos,
+    });
   } catch (error) {
     next(error);
   }

@@ -1,15 +1,37 @@
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { CohereClientV2 } = require('cohere-ai');
 
-const getGenAI = () => {
-  if (!process.env.GEMINI_API_KEY) {
-    throw new Error('GEMINI_API_KEY is not configured in environment variables');
+const getClient = () => {
+  if (!process.env.COHERE_API_KEY) {
+    throw new Error('COHERE_API_KEY is not configured in environment variables');
   }
-  return new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+  return new CohereClientV2({ token: process.env.COHERE_API_KEY });
+};
+
+const callCohere = async (prompt) => {
+  const client = getClient();
+  const response = await client.chat({
+    model: 'command-r-plus-08-2024',
+    messages: [
+      {
+        role: 'user',
+        content: prompt,
+      },
+    ],
+    temperature: 0.7,
+  });
+
+  let text = response.message.content[0].text.trim();
+
+  // Clean markdown code blocks if present
+  if (text.startsWith('```json')) text = text.slice(7);
+  else if (text.startsWith('```')) text = text.slice(3);
+  if (text.endsWith('```')) text = text.slice(0, -3);
+  text = text.trim();
+
+  return JSON.parse(text);
 };
 
 const generateContent = async (title) => {
-  const model = getGenAI().getGenerativeModel({ model: 'gemini-2.0-flash' });
-
   const prompt = `You are a content writer for "Voice For Help Trust", an Indian NGO that works in food distribution, animal welfare, cow protection, child welfare and medical assistance. Every donation is 100% transparency with daily video proof.
 
 Generate complete content for the following title. The tone should be emotional, engaging, heartwarming and written for an Indian audience. Use simple English that connects with Indian readers emotionally.
@@ -41,22 +63,7 @@ IMPORTANT RULES:
 - Instagram hashtags should mix popular and niche tags
 - Make all content unique and high quality`;
 
-  const result = await model.generateContent(prompt);
-  const responseText = result.response.text();
-
-  // Parse the JSON - handle cases where model wraps in code blocks
-  let cleaned = responseText.trim();
-  if (cleaned.startsWith('```json')) {
-    cleaned = cleaned.slice(7);
-  } else if (cleaned.startsWith('```')) {
-    cleaned = cleaned.slice(3);
-  }
-  if (cleaned.endsWith('```')) {
-    cleaned = cleaned.slice(0, -3);
-  }
-  cleaned = cleaned.trim();
-
-  const parsed = JSON.parse(cleaned);
+  const parsed = await callCohere(prompt);
 
   // Validate required fields
   if (!parsed.blogContent || !parsed.shortDescription || !parsed.youtube || !parsed.instagram || !parsed.facebook) {
@@ -67,8 +74,6 @@ IMPORTANT RULES:
 };
 
 const generateVideoContent = async (title) => {
-  const model = getGenAI().getGenerativeModel({ model: 'gemini-2.0-flash' });
-
   const prompt = `You are a content writer for "Voice For Help Trust", an Indian NGO. Generate YouTube-optimized content for an impact video.
 
 Video Title: "${title}"
@@ -81,16 +86,7 @@ Return ONLY a valid JSON object (no markdown, no code blocks):
 
 Make it emotional, engaging and optimized for Indian audience. Tags should be SEO-relevant keywords.`;
 
-  const result = await model.generateContent(prompt);
-  const responseText = result.response.text();
-
-  let cleaned = responseText.trim();
-  if (cleaned.startsWith('```json')) cleaned = cleaned.slice(7);
-  else if (cleaned.startsWith('```')) cleaned = cleaned.slice(3);
-  if (cleaned.endsWith('```')) cleaned = cleaned.slice(0, -3);
-  cleaned = cleaned.trim();
-
-  return JSON.parse(cleaned);
+  return await callCohere(prompt);
 };
 
 module.exports = { generateContent, generateVideoContent };

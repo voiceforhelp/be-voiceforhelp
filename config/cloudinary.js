@@ -23,6 +23,8 @@ const videoStorage = new CloudinaryStorage({
     folder: 'voiceforhelp/videos',
     allowed_formats: ['mp4', 'mov', 'avi', 'webm'],
     resource_type: 'video',
+    // No upload-time transformation — store original, optimize at delivery via URL params
+    // This prevents video truncation on free plan
   },
 });
 

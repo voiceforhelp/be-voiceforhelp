@@ -26,6 +26,8 @@ const videoImpactSchema = new mongoose.Schema(
     },
     status: { type: String, enum: ['processing', 'published', 'failed'], default: 'processing' },
     views: { type: Number, default: 0 },
+    likesCount: { type: Number, default: 0 },
+    commentsCount: { type: Number, default: 0 },
   },
   { timestamps: true }
 );
